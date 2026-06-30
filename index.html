@@ -92,6 +92,9 @@
       border-radius:4px;font-size:13px;font-weight:700;color:#e8eef7;
       background:#060912;flex-shrink:0;}
     .score-input:disabled{background:#080d1c;color:#2a3d5e;border-color:#1a2540;}
+    .match-locked{border:1px solid #1a3a1a!important;background:rgba(0,40,0,0.18)!important;}
+    .match-locked .score-input{background:#040e04;color:#4caf50;border-color:#1a5c1a;font-weight:700;cursor:not-allowed;}
+    .lock-badge{font-size:9px;color:#4caf50;margin-left:4px;opacity:0.8;vertical-align:middle;}
     .pen-row{display:flex;align-items:center;gap:2px;padding:2px 5px;
       background:#12200a;border-top:1px solid #1e3410;font-size:9.5px;color:#e8b400;}
     .pen-input{width:21px;height:18px;text-align:center;border:1px solid #e8b400;
@@ -232,13 +235,13 @@
     };
     function ab(n){ return n ? (ABBREV_BR[n]||n) : n; }
 
-function MatchBox({e1,e2,p,onUpd,fecha,isFinal,is34,label1,label2}){
+function MatchBox({e1,e2,p,onUpd,fecha,isFinal,is34,label1,label2,locked}){
     const listo=!!(e1&&e2);
     const empate=listo&&p.g1!==''&&p.g2!==''&&p.g1===p.g2;
     const w=ganador({...p,e1,e2});
     return (
-      <div className={'match-box'+(isFinal?' match-final':is34?' match-34':'')}>
-        {fecha&&<div className="match-fecha">{fecha}</div>}
+      <div className={'match-box'+(isFinal?' match-final':is34?' match-34':'')+(locked?' match-locked':'')}>
+        {fecha&&<div className="match-fecha">{fecha}{locked&&<span className="lock-badge">🔒</span>}</div>}
         <div className="match-inner">
           {[[e1,'g1',0,label1],[e2,'g2',1,label2]].map(([eq,gk,idx,lbl])=>(
             <div key={idx} className={'team-row'+(w===idx?' winner-row':listo&&eq?' classified':'')}>
@@ -248,8 +251,8 @@ function MatchBox({e1,e2,p,onUpd,fecha,isFinal,is34,label1,label2}){
                 {ab(eq)||<span className="team-pending">Por definir</span>}
               </span>
               <input className="score-input" value={p[gk]}
-                onChange={e=>onUpd(gk,e.target.value.replace(/[^0-9]/g,''))}
-                disabled={!listo} maxLength={2}/>
+                onChange={e=>locked?null:onUpd(gk,e.target.value.replace(/[^0-9]/g,''))}
+                disabled={!listo||locked} maxLength={2}/>
             </div>
           ))}
           {empate&&listo&&(
@@ -266,6 +269,16 @@ function MatchBox({e1,e2,p,onUpd,fecha,isFinal,is34,label1,label2}){
   }
 
   // ── Cuadro ────────────────────────────────────────────────────────────────
+  // ── Resultados R16 fijados (globales) ─────────────────────────────────────
+  const R16_RESULTADOS = {
+    0: {g1:'1',g2:'1',pen1:'3',pen2:'4'},  // Alemania 1(3)-(4)1 Paraguay
+    2: {g1:'0',g2:'1',pen1:'',pen2:''},    // Sudáfrica 0-1 Canadá
+    3: {g1:'1',g2:'1',pen1:'2',pen2:'3'},  // Países Bajos 1(2)-(3)1 Marruecos
+    8: {g1:'2',g2:'1',pen1:'',pen2:''},    // Brasil 2-1 Japón
+    9: {g1:'1',g2:'2',pen1:'',pen2:''},    // Costa de Marfil 1-2 Noruega
+  };
+  const R16_LOCKED = new Set(Object.keys(R16_RESULTADOS).map(Number));
+
   function Cuadro({r16,setR16,r8,setR8,r4,setR4,rsemi,setRsemi,rfinal,setRfinal,r34,setR34,
                    equiposR8,equiposR4,equiposRsemi,equiposFinal}){
     const upd=(setter,arr,i,c,v)=>{const n=[...arr];n[i]={...n[i],[c]:v};setter(n);};
@@ -276,7 +289,8 @@ function MatchBox({e1,e2,p,onUpd,fecha,isFinal,is34,label1,label2}){
           {r16.slice(0,8).map((p,i)=>(
             <MatchBox key={i} e1={p.e1} e2={p.e2} p={p}
               onUpd={(c,v)=>upd(setR16,r16,i,c,v)}
-              fecha={FECHAS.r16[i]} label1={LABELS16[i][0]} label2={LABELS16[i][1]}/>
+              fecha={FECHAS.r16[i]} label1={LABELS16[i][0]} label2={LABELS16[i][1]}
+              locked={R16_LOCKED.has(i)}/>
           ))}
         </div>
         <div className="ronda-col">
@@ -334,7 +348,8 @@ function MatchBox({e1,e2,p,onUpd,fecha,isFinal,is34,label1,label2}){
           {r16.slice(8,16).map((p,i)=>(
             <MatchBox key={i} e1={p.e1} e2={p.e2} p={p}
               onUpd={(c,v)=>upd(setR16,r16,i+8,c,v)}
-              fecha={FECHAS.r16[i+8]} label1={LABELS16[i+8][0]} label2={LABELS16[i+8][1]}/>
+              fecha={FECHAS.r16[i+8]} label1={LABELS16[i+8][0]} label2={LABELS16[i+8][1]}
+              locked={R16_LOCKED.has(i+8)}/>
           ))}
         </div>
       </div>
@@ -575,45 +590,95 @@ function MatchBox({e1,e2,p,onUpd,fecha,isFinal,is34,label1,label2}){
     }
 
     // ── Clasificación ─────────────────────────────────────────────────────────
-  function Clasificacion({clasificacion,baseGrupos,onClickNombre}){
-    return (
-      <div className="clas-wrap">
-        <table className="clas-table">
+  function Clasificacion({clasificacion,onClickNombre}){
+    const medal = i => i===0?'🥇':i===1?'🥈':i===2?'🥉':i+1;
+
+    // Derivar puntos por categoría
+    const withElim = clasificacion.map(c=>({
+      ...c,
+      fg:   c.d.grupos,
+      elim: (c.d.octavos||0)+(c.d.cuartos||0)+(c.d.semis||0)+(c.d.final34||0)+(c.d.pe||0),
+      honor:(c.d.honor||0),
+    }));
+
+    const byFG     = [...withElim].sort((a,b)=>b.fg   -a.fg   ||b.pts-a.pts);
+    const byElim   = [...withElim].sort((a,b)=>b.elim -a.elim ||b.pts-a.pts);
+    const byGlobal = [...withElim].sort((a,b)=>b.pts  -a.pts);
+
+    const MiniTabla = ({titulo, color, datos, keyPts, label}) => (
+      <div style={{flex:'1 1 200px',minWidth:0}}>
+        <div style={{
+          textAlign:'center',fontWeight:800,fontSize:13,
+          color:color,borderBottom:'2px solid '+color,
+          paddingBottom:6,marginBottom:8,letterSpacing:0.5,
+          textTransform:'uppercase'
+        }}>{titulo}</div>
+        <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
           <thead>
-            <tr>
-              <th>#</th>
-              <th style={{textAlign:'left'}}>Participante</th>
-              <th className="col-hide">Grupos</th>
-              <th className="col-hide">Oct.</th>
-              <th className="col-hide">Cua.</th>
-              <th className="col-hide">Semi</th>
-              <th className="col-hide">Final</th>
-              <th className="col-hide">Honor</th>
-              <th>Total</th>
-              <th>Mov.</th>
+            <tr style={{color:'#8fa6c4',fontSize:11}}>
+              <th style={{textAlign:'center',padding:'2px 4px',width:28}}>#</th>
+              <th style={{textAlign:'left',  padding:'2px 4px'}}>Nombre</th>
+              <th style={{textAlign:'right', padding:'2px 8px'}}>{label}</th>
             </tr>
           </thead>
           <tbody>
-            {clasificacion.map((c,i)=>{
-              const ganados=c.pts-(c.d?.grupos||c.pts);
-              return (
-                <tr key={c.nombre} className={i<3?'top3':''} onClick={()=>onClickNombre(c.nombre,c)}>
-                  <td>{i===0?'🥇':i===1?'🥈':i===2?'🥉':i+1}</td>
-                  <td className="nombre-cell">{c.nombre}</td>
-                  <td className="col-hide" style={{color:'#888',fontSize:12}}>{c.d.grupos}</td>
-                  <td className="col-hide" style={{color:'#888',fontSize:12}}>{c.d.octavos||'·'}</td>
-                  <td className="col-hide" style={{color:'#888',fontSize:12}}>{c.d.cuartos||'·'}</td>
-                  <td className="col-hide" style={{color:'#888',fontSize:12}}>{c.d.semis||'·'}</td>
-                  <td className="col-hide" style={{color:'#888',fontSize:12}}>{c.d.final||'·'}</td>
-                  <td className="col-hide" style={{color:'#888',fontSize:12}}>{c.d.honor||'·'}</td>
-                  <td className="pts-cell">{c.pts}</td>
-                  <td>{ganados>0&&<span className="delta-up">+{ganados}</span>}</td>
-                </tr>
-              );
-            })}
+            {datos.map((c,i)=>(
+              <tr key={c.nombre}
+                onClick={()=>onClickNombre(c.nombre,c)}
+                style={{
+                  cursor:'pointer',
+                  background: i<3 ? 'rgba(232,180,0,0.07)' : 'transparent',
+                  borderBottom:'1px solid #0d1526',
+                }}>
+                <td style={{textAlign:'center',padding:'5px 4px',fontWeight:700,
+                  color:i===0?'#e8b400':i===1?'#a0a0b0':i===2?'#c87533':'#8fa6c4',
+                  fontSize:i<3?15:13}}>
+                  {medal(i)}
+                </td>
+                <td style={{padding:'5px 4px',color: i<3?'#dde8f8':'#b0c4de',
+                  fontWeight:i<3?700:400,fontSize:13,
+                  whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',maxWidth:130}}>
+                  {c.nombre}
+                </td>
+                <td style={{textAlign:'right',padding:'5px 8px',
+                  fontWeight:700,color:'#e8b400',fontSize:14}}>
+                  {c[keyPts]}
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
-        <p style={{fontSize:11,color:'#aaa',textAlign:'center',marginTop:8}}>Toca un nombre para ver el desglose detallado</p>
+      </div>
+    );
+
+    return (
+      <div style={{padding:'8px 4px'}}>
+        <div style={{display:'flex',gap:16,flexWrap:'wrap',alignItems:'flex-start'}}>
+          <MiniTabla
+            titulo="Fase de Grupos"
+            color="#4a9eff"
+            datos={byFG}
+            keyPts="fg"
+            label="Pts"
+          />
+          <MiniTabla
+            titulo="Eliminatorias"
+            color="#e8b400"
+            datos={byElim}
+            keyPts="elim"
+            label="Pts"
+          />
+          <MiniTabla
+            titulo="Global"
+            color="#e8b400"
+            datos={byGlobal}
+            keyPts="pts"
+            label="Total"
+          />
+        </div>
+        <p style={{fontSize:10,color:'#667',textAlign:'center',marginTop:12}}>
+          Toca un nombre para ver el desglose detallado
+        </p>
       </div>
     );
   }
@@ -738,13 +803,6 @@ function MatchBox({e1,e2,p,onUpd,fecha,isFinal,is34,label1,label2}){
 
 // ── App ───────────────────────────────────────────────────────────────────
   function App(){
-    // Resultados conocidos de 16avos (se añaden según se juegan)
-    // Índices según cruces16: [0]=Ale-Par,[1]=Fra-Sue,[2]=Afr-Can,[3]=PB-Mar,
-    // [4]=Por-Cro,[5]=Esp-Aut,[6]=USA-Bos,[7]=Bel-Sen,[8]=Bra-Jap,[9]=CdM-Nor,
-    // [10]=Mex-Ecu,[11]=Eng-RDC,[12]=Arg-CV,[13]=Aus-Egy,[14]=Sui-Alg,[15]=Col-Gha
-    const R16_RESULTADOS = {
-      2: {g1:'0',g2:'1',pen1:'',pen2:''},  // Sudáfrica 0-1 Canadá (28 Jun)
-    };
     const [r16,setR16]=useState(DATOS.cruces16.map((c,i)=>({e1:c[0],e2:c[1],...(R16_RESULTADOS[i]||nuevoP())})));
     const [r8,setR8]=useState(Array(8).fill(null).map(nuevoP));
     const [r4,setR4]=useState(Array(4).fill(null).map(nuevoP));
@@ -892,7 +950,7 @@ function MatchBox({e1,e2,p,onUpd,fecha,isFinal,is34,label1,label2}){
             if(pron===eq){pts+=B.clas2+B.clas2_cuadro;d.semis+=B.clas2+B.clas2_cuadro;}
             else if((pr.semis||[]).includes(eq)){pts+=B.clas2;d.semis+=B.clas2;}
           });
-          // Cuartos: Es exactamente + Signo + Exacto
+          // Cuartos: Es exactamente + Signo + Exacto (slot directo: r4[i]→cua_match[i])
           r4.forEach((p,i)=>{
             const e1=(eqR4[i]||[])[0]||'', e2=(eqR4[i]||[])[1]||'';
             if(!e1||!e2) return;
@@ -900,14 +958,13 @@ function MatchBox({e1,e2,p,onUpd,fecha,isFinal,is34,label1,label2}){
             const g1=p.g1!==''?parseInt(p.g1):null;
             const g2=p.g2!==''?parseInt(p.g2):null;
             const sgR=(g1!=null&&g2!=null)?sg(g1,g2):null;
-            (pr.cua_match||[]).forEach(pred=>{
-              if(!pred||!pred[0])return;
-              if(matchPartido(pred,e1,e2)){
-                pts+=B.r4_partido; d.pe+=B.r4_partido;
-                if(w!=null&&sgR&&pred[1]===sgR){pts+=B.r4_signo;d.pe+=B.r4_signo;}
-                if(w!=null&&g1!=null&&pred[2]===g1&&pred[3]===g2){pts+=B.r4_exacto;d.pe+=B.r4_exacto;}
-              }
-            });
+            const pred=(pr.cua_match||[])[i];
+            if(!pred||!pred[0])return;
+            if(matchPartido(pred,e1,e2)){
+              pts+=B.r4_partido; d.pe+=B.r4_partido;
+              if(w!=null&&sgR&&pred[1]===sgR){pts+=B.r4_signo;d.pe+=B.r4_signo;}
+              if(w!=null&&g1!=null&&pred[2]===g1&&pred[3]===g2){pts+=B.r4_exacto;d.pe+=B.r4_exacto;}
+            }
           });
 
           // ── Semis: Clasif 3/4 (perdedores) + Clasif Final (ganadores) ──
@@ -927,7 +984,7 @@ function MatchBox({e1,e2,p,onUpd,fecha,isFinal,is34,label1,label2}){
               else if((pr.clasF||[]).includes(winner)){pts+=B.clasF;d.final34+=B.clasF;}
             }
           });
-          // Semis: Es exactamente + Signo + Exacto
+          // Semis: Es exactamente + Signo + Exacto (slot directo: rsemi[i]→semi_match[i])
           rsemi.forEach((p,i)=>{
             const e1=(eqRs[i]||[])[0]||'', e2=(eqRs[i]||[])[1]||'';
             if(!e1||!e2) return;
@@ -935,42 +992,43 @@ function MatchBox({e1,e2,p,onUpd,fecha,isFinal,is34,label1,label2}){
             const g1=p.g1!==''?parseInt(p.g1):null;
             const g2=p.g2!==''?parseInt(p.g2):null;
             const sgR=(g1!=null&&g2!=null)?sg(g1,g2):null;
-            (pr.semi_match||[]).forEach(pred=>{
-              if(!pred||!pred[0])return;
-              if(matchPartido(pred,e1,e2)){
-                pts+=B.rsemi_partido; d.pe+=B.rsemi_partido;
-                if(w!=null&&sgR&&pred[1]===sgR){pts+=B.rsemi_signo;d.pe+=B.rsemi_signo;}
-                if(w!=null&&g1!=null&&pred[2]===g1&&pred[3]===g2){pts+=B.rsemi_exacto;d.pe+=B.rsemi_exacto;}
-              }
-            });
+            const pred=(pr.semi_match||[])[i];
+            if(!pred||!pred[0])return;
+            if(matchPartido(pred,e1,e2)){
+              pts+=B.rsemi_partido; d.pe+=B.rsemi_partido;
+              if(w!=null&&sgR&&pred[1]===sgR){pts+=B.rsemi_signo;d.pe+=B.rsemi_signo;}
+              if(w!=null&&g1!=null&&pred[2]===g1&&pred[3]===g2){pts+=B.rsemi_exacto;d.pe+=B.rsemi_exacto;}
+            }
           });
 
           // ── Partido 3/4: Es exactamente + Signo + Exacto ──────────────
-          if(r34[0].g1!==''&&r34[0].g2!==''){
-            const g1=parseInt(r34[0].g1),g2=parseInt(r34[0].g2),sgR=sg(g1,g2);
+          // Usa solo final_match[0]; "Es exactamente" dispara cuando equipos conocidos
+          {
             const e1=equiposFinal.tercer[0]||'', e2=equiposFinal.tercer[1]||'';
-            (pr.semi_match||[]).concat(pr.final_match||[]).forEach(pred=>{
-              if(!pred||!pred[0])return;
-              if(matchPartido(pred,e1,e2)){
-                if(w34!=null){pts+=B.r34_partido;d.pe+=B.r34_partido;}
-                if(w34!=null&&pred[1]===sgR){pts+=B.r34_signo;d.pe+=B.r34_signo;}
-                if(w34!=null&&pred[2]===g1&&pred[3]===g2){pts+=B.r34_exacto;d.pe+=B.r34_exacto;}
-              }
-            });
+            const pred=(pr.final_match||[])[0];
+            if(e1&&e2&&pred&&pred[0]&&matchPartido(pred,e1,e2)){
+              pts+=B.r34_partido; d.pe+=B.r34_partido;
+              const g1=r34[0].g1!==''?parseInt(r34[0].g1):null;
+              const g2=r34[0].g2!==''?parseInt(r34[0].g2):null;
+              const sgR=(g1!=null&&g2!=null)?sg(g1,g2):null;
+              if(w34!=null&&sgR&&pred[1]===sgR){pts+=B.r34_signo;d.pe+=B.r34_signo;}
+              if(w34!=null&&g1!=null&&pred[2]===g1&&pred[3]===g2){pts+=B.r34_exacto;d.pe+=B.r34_exacto;}
+            }
           }
 
           // ── Final: Es exactamente + Signo + Exacto ────────────────────
-          if(rfinal[0].g1!==''&&rfinal[0].g2!==''){
-            const g1=parseInt(rfinal[0].g1),g2=parseInt(rfinal[0].g2),sgR=sg(g1,g2);
+          // Usa solo final_match[1]; "Es exactamente" dispara cuando equipos conocidos
+          {
             const e1=equiposFinal.final[0]||'', e2=equiposFinal.final[1]||'';
-            (pr.final_match||[]).forEach(pred=>{
-              if(!pred||!pred[0])return;
-              if(matchPartido(pred,e1,e2)){
-                if(wF!=null){pts+=B.rfin_partido;d.pe+=B.rfin_partido;}
-                if(wF!=null&&pred[1]===sgR){pts+=B.rfin_signo;d.pe+=B.rfin_signo;}
-                if(wF!=null&&pred[2]===g1&&pred[3]===g2){pts+=B.rfin_exacto;d.pe+=B.rfin_exacto;}
-              }
-            });
+            const pred=(pr.final_match||[])[1];
+            if(e1&&e2&&pred&&pred[0]&&matchPartido(pred,e1,e2)){
+              pts+=B.rfin_partido; d.pe+=B.rfin_partido;
+              const g1=rfinal[0].g1!==''?parseInt(rfinal[0].g1):null;
+              const g2=rfinal[0].g2!==''?parseInt(rfinal[0].g2):null;
+              const sgR=(g1!=null&&g2!=null)?sg(g1,g2):null;
+              if(wF!=null&&sgR&&pred[1]===sgR){pts+=B.rfin_signo;d.pe+=B.rfin_signo;}
+              if(wF!=null&&g1!=null&&pred[2]===g1&&pred[3]===g2){pts+=B.rfin_exacto;d.pe+=B.rfin_exacto;}
+            }
           }
 
           // ── Honor: Campeón / Subcampeón / 3º ──────────────────────────
@@ -1015,7 +1073,7 @@ function MatchBox({e1,e2,p,onUpd,fecha,isFinal,is34,label1,label2}){
           <div className="main-area">
             {tab==='cuadro'&&<Cuadro {...{r16,setR16,r8,setR8,r4,setR4,rsemi,setRsemi,rfinal,setRfinal,r34,setR34,equiposR8,equiposR4,equiposRsemi,equiposFinal}}/>}
             {tab==='honor'&&<Honor honor={honor} setHonor={setHonor}/>}
-            {tab==='clas'&&<Clasificacion clasificacion={clasificacion} baseGrupos={baseGrupos} onClickNombre={openModal}/>}
+            {tab==='clas'&&<Clasificacion clasificacion={clasificacion} onClickNombre={openModal}/>}
           </div>
           <div className="aside">
             <div className="aside-title">Clasificación en vivo</div>
